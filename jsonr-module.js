@@ -5,7 +5,7 @@
     Public Domain.
 
     NO WARRANTY EXPRESSED OR IMPLIED. USE AT YOUR OWN RISK.
-    
+
     Author: Franck WOLFF (http://www.graniteds.org)
 
     Based on the work of Douglas Crockford
@@ -34,14 +34,14 @@
             multiple references to the same object instance (even circular references),
             it only encodes the first occurrence and put a reference for all others in
             the form of: "\uXXXX" (with XXXX = (index of instance + 0xE000)).
-            
+
             See implementation for detail.
 
 
       - isReference(value)
 
               value        any JavaScript value.
-              
+
               This method returns true if the value is a String of length 1 with a
               unicode character in the range \uE000 - \uF8FF (ie. UTF8 private usage area).
 
@@ -49,24 +49,24 @@
       - revealReferences(text)
 
             text        a JSON text encoded by the JSONR.stringify method.
-            
+
             This method returns its parameter with all references replaced by human
             readable text (eg. "\uE000" -> "^0", "\uE001" -> "^1", ...,
             "\uE00A" -> "^10", etc.)
 
 
       - parse(text, reviver)
-        
+
             text        a JSON encoded text, such as those returned by
                         stringify.
-            
+
             reviver        an optional parameter that can filter and
                         transform the results. It receives each of the keys and values,
                         and its return value is used instead of the original value.
                         If it returns what it received, then the structure is not
                         modified. If it returns undefined then the member is deleted.
 
-            
+
             This method parses a JSON text to produce a JavaScript object. If the text
             parameter was obtained through a JSONR stringify method (or compatible),
             this method also resolve all references (see above).
@@ -94,7 +94,7 @@ var escapable = /[\\\"\x00-\x1f\x7f-\x9f\u00ad\u0600-\u0604\u070f\u17b4\u17b5\u2
     },
     rep,
     dy,
-    maxi = 0xF8FF - 0xE000;
+    radix = 0xF900 - 0xE000;
 
 function esc(a) {
     var c = meta[a];
@@ -121,9 +121,17 @@ function quote(string) {
     return '"' + string + '"';
 }
 
+function indexToReference(i) {
+    var rem, ref = '';
+    while (i >= radix) {
+        rem = i % radix;
+        ref = String.fromCharCode(0xE000 + rem) + ref;
+        i = (i - rem) / radix;
+    }
+    return ref = String.fromCharCode(0xE000 + i) + ref;
+}
 
 function str(key, holder) {
-
     var i,
         k,
         ks,
@@ -161,11 +169,7 @@ function str(key, holder) {
 
         i = dy.indexOf(value);
         if (i !== -1) {
-            return '"' + String.fromCharCode(0xE000 + i) + '"';
-        }
-
-        if (dy.length > maxi) {
-            throw new Error('JSONR.stringify: too many references');
+            return '"' + indexToReference(i) + '"';
         }
 
         dy.push(value);
@@ -265,18 +269,31 @@ exports.stringify = function (value, replacer, space) {
     return s;
 };
 
-exports.isReference = function (value) {
+function isReference (value) {
     var c;
-    if (typeof value === 'string' && value.length === 1) {
+    if (typeof value === 'string' && value.length > 0) {
         c = value.charCodeAt(0);
-        return c >= 0xE000 && c <= 0xF8FF;
+        if (value.length === 1) {
+            return c === 0xE000;
+        } else {
+            return c >= 0xE001 && c <= 0xF8FF;
+        }
     }
     return false;
 };
+exports.isReference = isReference;
+
+function referenceToIndex(r) {
+    var index;
+    for (var i = 0; i < r.length; i += 1) {
+        index += (r.charCodeAt(i) - 0xE000) * Math.pow(radix, r.length - 1 - i);
+    }
+    return index;
+}
 
 exports.revealReferences = function (text) {
     var begins = /"(?:[^"\\]|\\.)*"|[\[\{]/g,
-        indexes = /\"[\uE000-\uF8FF]\"/g,
+        references = /\"[\uE000-\uF8FF]+\"/g,
         index = 0;
 
     text = begins.test(text) ? text.replace(begins, function (s) {
@@ -287,8 +304,10 @@ exports.revealReferences = function (text) {
         return s;
     }) : text;
 
-    return indexes.test(text) ? text.replace(indexes, function (i) {
-        return '"@' + (i.charCodeAt(1) - 0xE000) + '"';
+    return references.test(text) ? text.replace(references, function (r) {
+        return isReference
+            ?  '"@' + referenceToIndex(r.slice(1, -1)) + '"'
+            : r;
     }) : text;
 };
 
@@ -298,13 +317,10 @@ function unref(value) {
     switch (typeof value) {
     case 'string':
         if (value.length > 0) {
-            c = value.charCodeAt(0);
-            if (c >= 0xE000 && c <= 0xF8FF) {
-                if (value.length === 1) {
-                    value = dy[c - 0xE000];
-                } else if (c === 0xE000) {
-                    value = value.substr(1);
-                }
+            if (isReference(value)) {
+                value = dy[referenceToIndex(value)];
+            } else if (value.charCodeAt(0) === 0xE000) {
+                value = value.substr(1);
             }
         }
         break;

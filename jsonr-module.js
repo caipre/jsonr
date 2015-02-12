@@ -273,18 +273,14 @@ function isReference (value) {
     var c;
     if (typeof value === 'string' && value.length > 0) {
         c = value.charCodeAt(0);
-        if (value.length === 1) {
-            return c === 0xE000;
-        } else {
-            return c >= 0xE001 && c <= 0xF8FF;
-        }
+        return c >= (value.length === 1 ? 0xE000 : 0xE001) && c <= 0xF8FF;
     }
     return false;
 };
 exports.isReference = isReference;
 
 function referenceToIndex(r) {
-    var index;
+    var index = 0;
     for (var i = 0; i < r.length; i += 1) {
         index += (r.charCodeAt(i) - 0xE000) * Math.pow(radix, r.length - 1 - i);
     }
